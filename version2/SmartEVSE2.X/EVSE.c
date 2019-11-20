@@ -11,7 +11,7 @@
 ;            i.e. -15A PV power +45A MaxMains results in charging current of 60A.
 ;       Bugfixes to load balancing code (only affects v2)
 ; 2.02  Fix: Slave Max charge current was set to Cable limit instead of MaxCurrent
-;       Fix: Charging sometimes stopped because State C control pilot ranges were too strict. 
+;       Fix: Charging sometimes stopped because State C control pilot ranges were too strict.
 ; 2.03  Changed lowest MaxMains setting to 10A, lowest CT calibration value to 6A.
 ; 2.04  Fix: In Normal mode, the MAX charge current was limited by the MAINS setting (which is not shown in this mode).
 ;       Fix: default LoadBl EEPROM setting was not set correctly.
@@ -19,10 +19,10 @@
 ;       ACCESS menu option added. Allows to Start/Stop charging by connecting a button/switch to IO2.
 ;       if the ACCESS option is set to disabled, the button can be used to stop charging.
 ;       On IO1 a LED can be connected, which acts as a charging/error indicator.
-; 2.05  Fix: Using a 16A charge cable would limit MaxCurrent to 16A, until a reset of the module or adjusting the MAX value using the menu. 
+; 2.05  Fix: Using a 16A charge cable would limit MaxCurrent to 16A, until a reset of the module or adjusting the MAX value using the menu.
 ;       Fix: Increased number of times a STATE change needs to be valid, before the actual STATE change takes place.
 ;            this to fix erratic behavior on a Renault Zoe.
-;       LCD Backlight will now be activated on any key press, and will turn off after 30 seconds of inactivity (except when charging).  
+;       LCD Backlight will now be activated on any key press, and will turn off after 30 seconds of inactivity (except when charging).
 ;       CT's default values can be restored by holding both < and > keys while in the CAL menu.
 ;       RCMON menu option added. This adds support for DC Residual Current sensors, as required by IEC62955.
 ;            IO3 is used as the fault input (active high).
@@ -31,7 +31,14 @@
 ; 2.07  Fix: The RCD was tripped by inductive loads/ voltage spikes on the mains line. Checking twice for a tripped RCD fixed this.
 ;       Bootloader can now only be entered when also the right button on top of the module is pressed.
 ;       Added Compile time option to switch directly from STATE_A to STATE_C.
-;
+; 2.07.VarPV   Added ability to vary charge current using PP input if tethered cable
+;      could be from a small Solar cell 53mmx30mm loaded 60 ohm 
+;      or variable pot or variable or switched resistors to 0volts
+;      or Analogue voltage from Solar inverter ( suitably scaled eg 2.7k+1k to 0v) 
+;      or from directional energy monitor with analogue output
+;      Added option to charge Tesla's at 5A ( select MinCurrent =5 otherwise 6)
+;      Enable Menu_Min via buttons in all modes GLCD.c
+;      change test PWM at 3% to 7%  (was 9%) to give more tolerance for Tesla charge mode
 ;   Use XC8 compiler version 1.45, version 2.x currently does not work.
 ;
 ;   set XC8 linker memory model settings to: double 32 bit, float 32 bit
@@ -134,7 +141,7 @@ unsigned int Imeasured=0;                                                       
 int IsetBalanced=0;                                                             // Max calculated current available for all EVSE's
 int Balanced[4]={0,0,0,0};                                                      // Amps value per EVSE (max 4)
 int BalancedMax[4]={0,0,0,0};                                                   // Max Amps value per EVSE (max 4)
-char BalancedState[4]={0,0,0,0};                                                // State of all EVSE's 0=not active (state A), 1=charge request (State B), 2= Charging (State C) 
+char BalancedState[4]={0,0,0,0};                                                // State of all EVSE's 0=not active (state A), 1=charge request (State B), 2= Charging (State C)
 
 unsigned char RX1byte, TX1byte;
 unsigned char idx=0,idx2=0,ISRFLAG=0,ISR2FLAG=0,ISRTXFLAG=0;
@@ -160,8 +167,11 @@ unsigned char LedCount=0;                                                       
 unsigned char LedPwm=0;                                                         // PWM value 0-255
 
 unsigned char Access_bit=0;
-unsigned int AccessTimer=0;         
-
+unsigned int AccessTimer=0;
+unsigned int PP = 1023;                                                         //ARW keep the Proximity Pin A/D result
+unsigned char Charging = 0;                                                     //ARW for hysterisis of variable current threshold
+unsigned char WasCharging =0;                                                   //ARW used for hysterisis was it chargeing last time round?
+unsigned char Min =6;                                                           //ARW  used in SetCurrent() could declare it locally there?
 const far char MenuConfig[] = "CONFIG - Set to Fixed Cable or Type 2 Socket";
 const far char MenuMode[]   = "MODE   - Set to Smart mode or Normal EVSE mode";
 const far char MenuLoadBl[] = "LOADBL - Set Load Balancing mode";
@@ -180,8 +190,8 @@ void interrupt high_isr(void)
     // Determine what caused the interrupt
     while (PIR1bits.RC1IF)                                                      // Uart1 receive interrupt? RS485
     {
-        RX1byte = RCREG1;                                                       // copy received byte	
-    // check for start/end of data packet byte, and max number of bytes in buffer 
+        RX1byte = RCREG1;                                                       // copy received byte
+    // check for start/end of data packet byte, and max number of bytes in buffer
         if (idx == 50) idx--;
         if (RX1byte == 0x7E)                                                    // max 50 bytes in buffer
         {
@@ -217,7 +227,7 @@ void interrupt high_isr(void)
     }
 
     // Uart2 receive interrupt?
-    while (PIR3bits.RC2IF)                                                      
+    while (PIR3bits.RC2IF)
     {
         // Check for BREAK character, then Reset
 
@@ -227,7 +237,7 @@ void interrupt high_isr(void)
             RX1byte = RCREG2;                                                   // copy received byte
             if (!RX1byte) Reset();                                              // Only reset if not charging...
         } else RX1byte = RCREG2;
-        
+
         TXREG2 = RX1byte;                                                       // echo to UART2 port, don't check for overflow here.
         if (idx2 == 50) idx2--;
         if ((RX1byte == 0x08) && (idx2 > 0)) {
@@ -243,12 +253,12 @@ void interrupt high_isr(void)
     }
 
     // Timer 4 interrupt, called 1000 times/sec
-    while (PIR5bits.TMR4IF)                                                     
+    while (PIR5bits.TMR4IF)
     {
         if (Lock == 1)                                                          // Cable lock type Solenoid?
         {
             if (Error || (State != STATE_C)) {
-                if (unlocktimer < 300)                                          // 300ms pulse		
+                if (unlocktimer < 300)                                          // 300ms pulse
                 {
                     SOLENOID_UNLOCK;
                 } else SOLENOID_OFF;
@@ -279,7 +289,7 @@ void interrupt high_isr(void)
         else if (Lock == 2)                                                     // Cable lock type Motor?
         {
             if (Error || (State != STATE_C)) {
-                if (unlocktimer < 600)                                          // 600ms pulse		
+                if (unlocktimer < 600)                                          // 600ms pulse
                 {
                     SOLENOID_UNLOCK;
                 } else SOLENOID_OFF;
@@ -307,7 +317,7 @@ void interrupt high_isr(void)
                 unlocktimer = 0;
             }
         }
-         
+
 
         Timer++;                                                                // mSec counter (overflows in 1193 hours)
         if (AccessTimer) AccessTimer--;
@@ -408,7 +418,7 @@ void eeprom_write_object(void *obj_p, size_t obj_size) {
             EECON2 = 0xAA;                                                      // #2
             EECON1bits.WR = 1;                                                  // #3 = actual write
             while (EECON1bits.WR);                                              // blocking
-        }    
+        }
         EECON1bits.WREN = 0;                                                    // disable write to EEPROM
         EEADR++;
     }
@@ -467,7 +477,7 @@ void write_settings(void) {
 void putch(unsigned char byte)                                                  // user defined printf support on uart2
 {
     // output one byte on UART2
-    while (!PIR3bits.TX2IF)                                                     // set when register is empty 
+    while (!PIR3bits.TX2IF)                                                     // set when register is empty
         continue;
     TXREG2 = byte;
 
@@ -504,7 +514,7 @@ void RS485SendBuf(char* buffer, unsigned char len) {
     PIE1bits.TX1IE = 1;                                                         // enable transmit Interrupt for RS485
 }
 
-unsigned char ReadPilot(void)                                                   // Read Pilot Signal 
+unsigned char ReadPilot(void)                                                   // Read Pilot Signal
 {
     ADCON0bits.GO = 1;                                                          // initiate ADC conversion on the selected channel
     while (ADCON0bits.GO);
@@ -515,19 +525,30 @@ unsigned char ReadPilot(void)                                                   
     return PILOT_NOK;                                                           // Pilot NOT ok
 }
 
-void ProximityPin(void) {
+void ReadPP(void) {                                                             //ARW new routine to read A/D on PP used in ProximityPin() and setCurrent())
     ADCON0 = 0b00000101;                                                        // ADC input AN1 (Proximity Pin)
     ADCON2 = 0b10100101;                                                        // Right justify, Tacq = 8 uS, FOSC/16
     delay(100);
     ADCON0bits.GO = 1;                                                          // initiate ADC conversion on the selected channel
     while (ADCON0bits.GO);
+    PP= ADRES;                                                                  //ARW save A/D output as PP
+    ADCON0 = 0b00000001;                                                        // ADC input AN0 (Pilot)
+    ADCON2 = 0b10000101;                                                        // Right justify, Tacq = 0 uS, FOSC/16
+}
 
+void ProximityPin(void) {
+    //ADCON0 = 0b00000101;                                                        // ADC input AN1 (Proximity Pin)
+    //ADCON2 = 0b10100101;                                                        // Right justify, Tacq = 8 uS, FOSC/16
+    //delay(100);
+    //ADCON0bits.GO = 1;                                                          // initiate ADC conversion on the selected channel
+    //while (ADCON0bits.GO);
+    ReadPP();
     MaxCapacity = 13;                                                           // No resistor, Max cable current = 13A
     if ((ADRES > 394) && (ADRES < 434)) MaxCapacity = 16;                       // Max cable current = 16A	680R
     if ((ADRES > 175) && (ADRES < 193)) MaxCapacity = 32;                       // Max cable current = 32A	220R
     if ((ADRES > 88) && (ADRES < 98)) MaxCapacity = 63;                         // Max cable current = 63A	100R
 
-    if (Config) MaxCapacity = CableLimit;                                       // Override when Fixed Cable is used.  
+    if (Config) MaxCapacity = CableLimit;                                       // Override when Fixed Cable is used.
 
     ADCON0 = 0b00000001;                                                        // ADC input AN0 (Pilot)
     ADCON2 = 0b10000101;                                                        // Right justify, Tacq = 0 uS, FOSC/16
@@ -581,14 +602,49 @@ void BlinkLed(void) {
 void SetCurrent(unsigned int current)                                           // current in Amps (16= 16A)
 {
     unsigned int DutyCycle;
+    unsigned int demandcurrent;
+  //  current = current * 10;                                                     // multiply by 10 (current in Amps x10	(160= 16A) )
 
-    current = current * 10;                                                     // multiply by 10 (current in Amps x10	(160= 16A) )
-    if ((current >= 60) && (current <= 510)) DutyCycle = (unsigned int) (current / 0.6);
+    demandcurrent= current * 10;
+      if (Config) {                                              //ARW only use variable control if fixed cable
+      ReadPP();                                                 // ARW read voltage on Proximity Pin
+  		//ARW 160 is 16A for 4kwatt PV system might need to use menu to change this.
+      current=160uL*PP/1023;            // force uL 160uL*PP won't overflow as u int would
+      DEBUG_PRINT(("demandcurrent:%3u PP:%4i currentul:%3u  ", demandcurrent, PP, current));
+  	if (current > demandcurrent) current = demandcurrent;							//ARW mustn't exceed demanded current
+      DEBUG_PRINT(("  current:%3u ",  current));
+      }
+      else current = 10 * current;
+      if (MinCurrent == 5) Min=50; else Min=60;        //ARW We have selected a Tesla MinCurrent = 5 or not
+      Charging = 1;                                   //ARW used for hysterisis in PP variable input threshold
+      //if ((current >= 60) && (current <= 510)) DutyCycle = (unsigned int) (current / 0.6);   // calculate DutyCycle from current
+      if ((current >= Min) && (current <= 510)) DutyCycle =  (current * 10 / 6);     //ARW change to 5 amp min for tesla
+                                                //ARW but change pilot test from 3-9% to 3-7%
+                                               //ARW Tesla charging current drops to zero if duty cycle < 83
+      else if ((current > 510) && (current <= 800)) DutyCycle =  (current * 10 / 25) + 640;
+      //else if ((current > 25) && (current < Min)) DutyCycle = 83;     // reduces the threshold to 2.5A so will still charge at 5A
+      // ARW  hysterisis code here:
+      else if ((WasCharging) && (current > 20) && (current < Min)) DutyCycle = Min * 10/6;   //ARW keep charging till 2A demand current
+      else if ((!WasCharging) && (current > 30) && (current < Min)) DutyCycle = Min * 10/6;  //ARW increase threshold to 3A if not charging for hysterisis
+     // else DutyCycle = 100;                                                       // invalid, use 6A
+      else if ((current+1 >= 1)&&(current < Min))
+            {             //ARW if none of the above and in particular neither of the two above
+                          // adding the 1 avoids degenerate comparison compiler warning if compared with zero
+            if (MinCurrent == 5 )DutyCycle = 78;              //ARW  use 4.7A for Tesla so it stops charging but stays State C
+                  //NB Tesla threshold to stop charging is DutyCycle 82 (8.2%) so 78 gives sufficient tolerance
+                  //ARW using MinCurrent ==5 as test for Tesla mode charging.
+            else Error = NOCURRENT ;        //ARW for non Teslas we need to stop State C
+            Charging = 0;
+            }
+      WasCharging = Charging;
+                                             //ARW 8.3%duty cycle is the threshold for Tesla to start charging
+    DEBUG_PRINT(("  DutyCycle:%3u  Charging:%1u ",  DutyCycle, Charging));
+    //if ((current >= 60) && (current <= 510)) DutyCycle = (unsigned int) (current / 0.6);
                                                                                 // calculate DutyCycle from current
-    else if ((current > 510) && (current <= 800)) DutyCycle = (unsigned int) (current / 2.5) + 640;
-    else DutyCycle = 100;                                                       // invalid, use 6A
+    //else if ((current > 510) && (current <= 800)) DutyCycle = (unsigned int) (current / 2.5) + 640;
+    //else DutyCycle = 100;                                                       // invalid, use 6A
     CCPR1L = DutyCycle >> 2;                                                    // Msb of DutyCycle
-                                                                                // 2 Lsb are part of CCP1CON, use Timer 2	
+                                                                                // 2 Lsb are part of CCP1CON, use Timer 2
     CCP1CON = (((DutyCycle & 0x03) << 4) | 0x0C);                               // PWM Pilot signal enabled
 }
 
@@ -640,7 +696,7 @@ void CalcBalancedCurrent(char mod) {
     if (BalancedState[0] == 2 && MaxCurrent > MaxCapacity) ChargeCurrent = MaxCapacity;
     else ChargeCurrent = MaxCurrent;                                            // Instead use new variable ChargeCurrent.
 
-    if (LoadBl < 2) BalancedMax[0] = ChargeCurrent;                             // Load Balancing Disabled or Master: 
+    if (LoadBl < 2) BalancedMax[0] = ChargeCurrent;                             // Load Balancing Disabled or Master:
                                                                                 // update BalancedMax[0] if the MAX current was adjusted using buttons or CLI
 
     for (n = 0; n < 4; n++) if (BalancedState[n] == 2) {
@@ -669,7 +725,7 @@ void CalcBalancedCurrent(char mod) {
     if (BalancedLeft)                                                           // Only if we have active EVSE's
     {
 
-        if (mod) IsetBalanced = (MaxMains * 10) - Baseload;                     // Set max combined charge current to MaxMains - Baseload		
+        if (mod) IsetBalanced = (MaxMains * 10) - Baseload;                     // Set max combined charge current to MaxMains - Baseload
 
         if (IsetBalanced < 0 || IsetBalanced < (BalancedLeft * (MinCurrent * 10))) {
             NoCurrent++;                                                        // Flag NoCurrent left
@@ -723,7 +779,7 @@ void CalcBalancedCurrent(char mod) {
 
 // Broadcast momentary currents to all Slave EVSE's
 
-void BroadcastCurrent(void) 
+void BroadcastCurrent(void)
 {
     char n, x;
     unsigned int cs;
@@ -742,7 +798,7 @@ void BroadcastCurrent(void)
         Tbuffer[n++] = Balanced[x];
     }
                                                                                 // Frame Check Sequence (FCS) Field
-    cs = calc_crc16(Tbuffer, n);                                                // calculate CRC16 from data			
+    cs = calc_crc16(Tbuffer, n);                                                // calculate CRC16 from data
     Tbuffer[n++] = ((unsigned char) (cs));
     Tbuffer[n++] = ((unsigned char) (cs >> 8));
 
@@ -764,7 +820,7 @@ void SendRS485(char address, char command, char data, char data2)               
     Tbuffer[7] = data;                                                          // only used in error command
     Tbuffer[8] = data2;                                                         // charge current
                                                                                 // Frame Check Sequence (FCS) Field
-    cs = calc_crc16(Tbuffer, 9);                                                // calculate CRC16 from data			
+    cs = calc_crc16(Tbuffer, 9);                                                // calculate CRC16 from data
     Tbuffer[9] = ((unsigned char) (cs));
     Tbuffer[10] = ((unsigned char) (cs >> 8));
 
@@ -786,12 +842,12 @@ void SendRS485(char address, char command, char data, char data2)               
 // MIN    - Set MIN Charge Current the EV will accept
 // CAL    - Calibrate CT1
 // LOCK   - Cable lock Disable/Solenoid/Motor
-// ACCESS - Access control on IO2                    
+// ACCESS - Access control on IO2
 // RCMON  - Residual Current Monitor on IO3
 // L1: 1.2A L2: 5.3A L3: 0.4A (MAX:26A MIN:10A)
 //
 
-void RS232cli(void) 
+void RS232cli(void)
 {
     unsigned int n;
     double Inew, Iold;
@@ -821,7 +877,7 @@ void RS232cli(void)
             } else if ((menu == 2) && (n > 9) && (n < 81)) {
                 MaxCurrent = n;                                                 // Set new MaxCurrent
                 write_settings();                                               // Write to eeprom
-            } else if ((menu == 3) && (n > 5) && (n < 17)) {
+            } else if ((menu == 3) && (n > 4) && (n < 17)) {                 //ARW altered to 5A min current for Teslas
                 MinCurrent = n;                                                 // Set new MinCurrent
                 write_settings();                                               // Write to eeprom
             } else if ((menu == 8) && (n > 12) && (n < 81)) {
@@ -944,7 +1000,7 @@ void RS232cli(void)
         //printf("MAX    - Set MAX Charge Current for the EV         ( %2u A)\r\n",MaxCurrent);
         printf(MenuMax);
         printf("        -  %2u A\r\n", MaxCurrent);
-        if (Mode || (LoadBl == 1)) {
+        if (Mode || (LoadBl == 1)) {          //ARW we may want to do this in any mode for proportional current control
         //printf("MIN    - Set MIN Charge Current the EV will accept ( %2u A)\r\n",MinCurrent);
             printf(MenuMin);
             printf("-  %2u A\r\n", MinCurrent);
@@ -1062,7 +1118,7 @@ void TestIO(void)                                                               
         ProximityPin();
         if (MaxCapacity != 32) error ^= 2;                                      // error!
         TestState = STATE_C;
-        LATBbits.LATB3 = 1;                                                     // set IO1 to high State B->State C 
+        LATBbits.LATB3 = 1;                                                     // set IO1 to high State B->State C
     } else if (TestState == STATE_C && State == STATE_C)                        //+6V (C state) OK
     {
         Lock = 1;                                                               // enable Lock
@@ -1081,7 +1137,7 @@ void TestIO(void)                                                               
         } else error ^= 8;                                                      // error
 
         TestState = STATE_CB;
-        LATBbits.LATB3 = 0;                                                     // set IO1 to low State C->State B 
+        LATBbits.LATB3 = 0;                                                     // set IO1 to low State C->State B
     } else if (TestState == STATE_CB && State == STATE_B) {
         TRISB = 0b10000001;                                                     // RB7(RX2), RB0 inputs. all other output
         delay(1000);
@@ -1097,7 +1153,7 @@ void TestIO(void)                                                               
         TRISB = 0b10000001;                                                     // Reset all IO to default values
         LATBbits.LATB1 = 0;
         LATBbits.LATB2 = 0;
-        LATBbits.LATB3 = 0;                                                     // set IO1 to low State C->State B 
+        LATBbits.LATB3 = 0;                                                     // set IO1 to low State C->State B
         Lock = 0;
         Error = Test_IO;
         TestState = error;
@@ -1109,7 +1165,7 @@ void init(void) {
     OSCCON = 0b01101100;                                                        // setup external oscillator
     OSCCON2 = 0b00000100;                                                       // primary Oscillator On.
 
-    RCON = 0b10011111;                                                          // Set Interrupt priority 
+    RCON = 0b10011111;                                                          // Set Interrupt priority
 
     PMD0 = 0b00000000;                                                          // Perhiperal Module Enable/Disable
     PMD1 = 0b00000000;                                                          // All enabled
@@ -1122,7 +1178,7 @@ void init(void) {
     PORTB = 0;
     ANSELB = 0;                                                                 // All digital IO
     TRISB = 0b10000111;                                                         // RB7(RX2), RB0-RB2 inputs. all other output
-    WPUB = 0b10000111;                                                          // weak pullup on RB7 and RB0-RB2    
+    WPUB = 0b10000111;                                                          // weak pullup on RB7 and RB0-RB2
     INTCON2bits.RBPU = 0;                                                       // Enable weak pullups on PORTB
 
     PORTC = 0;
@@ -1130,17 +1186,17 @@ void init(void) {
     TRISC = 0b10000010;                                                         // RC1 and RC7 input (RX1), all other output
 
     SPBRGH1 = 13;                                                               // Initialize UART 1 (RS485)
-    SPBRG1 = 4;                                                                 // Baudrate 1200 
+    SPBRG1 = 4;                                                                 // Baudrate 1200
     BAUDCON1 = 0b00001000;                                                      // 16 bit Baudrate register is used
     TXSTA1 = 0b00100100;                                                        // Enable TX, 8 bit, Asynchronous mode
-    RCSTA1 = 0b10010000;                                                        // Enable serial port TX and RX, 8 bit. 
+    RCSTA1 = 0b10010000;                                                        // Enable serial port TX and RX, 8 bit.
 
     SPBRGH2 = 0;                                                                // Initialize UART 2
     SPBRG2 = 34;                                                                // Baudrate 115k2 (114285)
     //	SPBRG2 = 207;                                                           // Baudrate 19k2
     BAUDCON2 = 0b00001000;                                                      // 16 bit Baudrate register is used
     TXSTA2 = 0b00100100;                                                        // Enable TX, 8 bit, Asynchronous mode
-    RCSTA2 = 0b10010000;                                                        // Enable serial port TX and RX, 8 bit. 
+    RCSTA2 = 0b10010000;                                                        // Enable serial port TX and RX, 8 bit.
 
     VREFCON0 = 0b10100000;                                                      // Fixed Voltage reference set to 2.048V
 
@@ -1172,7 +1228,7 @@ void init(void) {
     INTCONbits.GIEH = 1;                                                        // global High Priority interrupts enabled
     INTCONbits.GIEL = 0;                                                        // global Low Priority interrupts disabled
 
-    SOLENOID_OFF;                                                               // R and W outputs held at Capacitor voltage (+12V) 
+    SOLENOID_OFF;                                                               // R and W outputs held at Capacitor voltage (+12V)
 
     CCPR2L = 0;                                                                 // LED DutyCycle 0%
     CCP2CON = 0x0C;                                                             // LED PWM on
@@ -1187,7 +1243,7 @@ void main(void) {
     unsigned char pilot, count = 0, timeout = 5;
     char DiodeCheck = 0;
     char SlaveAdr, Command, Broadcast = 0, Switch_count = 0;
-    unsigned int Current;
+    unsigned int Current =5;                                                   //ARW initialise for debugging
 
     init();                                                                     // initialize ports, ADC, UARTs etc
 
@@ -1202,7 +1258,7 @@ void main(void) {
     while (1)                                                                   // MAIN loop
     {
 
-                
+
         if (TestState) TestIO();                                                // TestMode. Test all I/O of Module
 
         if (ISR2FLAG) RS232cli();                                               // RS232 command line interface
@@ -1250,13 +1306,13 @@ void main(void) {
                         Error = NO_ERROR;                                       // Clear error , by pressing the button
                     }
                 }                                                               // Reset timer while button is pressed.
-                AccessTimer = 200;                                              // this de-bounces the switch, and makes sure we don't toggle between Access and No-Access.    
+                AccessTimer = 200;                                              // this de-bounces the switch, and makes sure we don't toggle between Access and No-Access.
                 Switch_count = 0;                                               // make sure that noise on the input does not switch off charging
             }
         } else Switch_count = 0;
 
         if (RCmon == 1 && PORTBbits.RB1 == 1)                                   // RCD monitor active, and RCD DC current > 6mA ?
-        {
+        {   delay(2);                                                           //ARW add bit more delay 2msecs for transient to die
             if (PORTBbits.RB1 == 1) {                                           // check again, to prevent voltage spikes from tripping the RCD detection (2.07)
                 State = STATE_A;
                 Error = RCD_TRIPPED;
@@ -1299,7 +1355,7 @@ void main(void) {
                             if (MaxCurrent > MaxCapacity) ChargeCurrent = MaxCapacity; // Do not modify Max Cable Capacity or MaxCurrent (fix 2.05)
                             else ChargeCurrent = MaxCurrent;                    // Instead use new variable ChargeCurrent
 
-                            if (LoadBl > 1)                                     // Load Balancing : Slave 
+                            if (LoadBl > 1)                                     // Load Balancing : Slave
                             {
                                 SendRS485(LoadBl - 1, 0x02, 0x00, ChargeCurrent); // Send command to Master, followed by Max Charge Current
                                 printf("02 sent to Master, requested %uA\r\n", ChargeCurrent);
@@ -1332,7 +1388,9 @@ void main(void) {
         if (State == STATE_B)                                                   // ############### EVSE State B #################
         {
                                                                                 // measure voltage at ~5% and ~90% of PWM cycle
-            if ((TMR2 > 7) && (TMR2 < 24))                                      // PWM cycle 3% - 9% (should be high)
+        //    if ((TMR2 > 7) && (TMR2 < 24))                                      // PWM cycle 3% - 9% (should be high)
+            if ((TMR2 > 7) && (TMR2 < 17))                                      // ARW PWM cycle 3% - 7% (should be high) allows tesla 5amp
+
             {
                 pilot = ReadPilot();
                 if (pilot == PILOT_12V)                                         // Disconnected?
@@ -1342,7 +1400,7 @@ void main(void) {
                         {
                             State = STATE_A;                                    // switch to STATE_A
                             printf("STATE B->A\r\n");
-                            if (LoadBl > 1)                                     // Load Balancing : Slave 
+                            if (LoadBl > 1)                                     // Load Balancing : Slave
                             {
                                 State = STATE_COMM_A;                           // Tell Master we switched to State A
                                 Timer = ACK_TIMEOUT + 1;                        // Set the timer to Timeout value, so that it expires immediately
@@ -1357,7 +1415,7 @@ void main(void) {
                         if (count++ > 25)                                       // repeat 25 times (changed in v2.05)
                         {
                             if ((Error == NO_ERROR) && (ChargeDelay == 0)) {
-                                if (LoadBl > 1)                                 // Load Balancing : Slave 
+                                if (LoadBl > 1)                                 // Load Balancing : Slave
                                 {
                                     SendRS485(LoadBl - 1, 0x03, 0x00, ChargeCurrent); // Send command to Master, followed by Charge Current
                                     printf("03 sent to Master, requested %uA\r\n", ChargeCurrent);
@@ -1365,7 +1423,7 @@ void main(void) {
                                     Timer = 0;                                  // Clear the Timer
                                 } else {                                        // Load Balancing: Master or Disabled
                                     BalancedMax[0] = ChargeCurrent;
-                                    if (IsCurrentAvailable() == 0) {
+                                    if (IsCurrentAvailable() == 0) {            //ARW 0 means current is available
                                         BalancedState[0] = 2;                   // Mark as Charging
                                         Balanced[0] = 0;                        // For correct baseload calculation set current to zero
                                         CalcBalancedCurrent(1);                 // Calculate charge current for all connected EVSE's
@@ -1419,8 +1477,10 @@ void main(void) {
         if (State == STATE_C)                                                   // ############### EVSE State C #################
         {
                                                                                 // measure voltage at ~5% of PWM cycle
-            if ((TMR2 > 7) && (TMR2 < 24))                                      // cycle 3% - 9% (should be high)
-            {
+          //  if ((TMR2 > 7) && (TMR2 < 24))                                      // cycle 3% - 9% (should be high)
+            if ((TMR2 > 7) && (TMR2 < 17))                                      //ARW cycle 3% - 7% (should be high) for 5A Tesla
+
+          {
                 pilot = ReadPilot();
                 if ((pilot == PILOT_12V) || (pilot == PILOT_NOK))               // Disconnected or Error?
                 {
@@ -1430,7 +1490,7 @@ void main(void) {
                             State = STATE_A;                                    // switch back to STATE_A
                             printf("STATE C->A\r\n");
                             GLCD_init();                                        // Re-init LCD
-                            if (LoadBl > 1)                                     // Load Balancing : Slave 
+                            if (LoadBl > 1)                                     // Load Balancing : Slave
                             {
                                 State = STATE_COMM_A;                           // Tell Master we switched to State A
                                 Timer = ACK_TIMEOUT + 1;                        // Set the timer to Timeout value, so that it expires immediately
@@ -1451,7 +1511,7 @@ void main(void) {
                             GLCD_init();                                        // Re-init LCD
                             DiodeCheck = 0;
                             State = STATE_B;                                    // switch back to STATE_B
-                            if (LoadBl > 1)                                     // Load Balancing : Slave 
+                            if (LoadBl > 1)                                     // Load Balancing : Slave
                             {
                                 State = STATE_COMM_CB;                          // Send 04 command to Master
                                 Timer = ACK_TIMEOUT + 1;                        // Set the timer to Timeout value, so that it expires immediately
@@ -1465,7 +1525,7 @@ void main(void) {
                     }
                 } else                                                          // PILOT_6V
                 {
-                    NextState = 0;                                              // no State to switch to					
+                    NextState = 0;                                              // no State to switch to
                 }
             }
 
@@ -1544,7 +1604,7 @@ void main(void) {
                 {
                     CalcBalancedCurrent(0);                                     // Calculate charge current for connected EVSE's
                     if (LoadBl == 1) BroadcastCurrent();                        // Send to all EVSE's (only in Master mode)
-
+                    DEBUG_PRINT(("  Balanced[0]current:%u   ",Balanced[0]));    //ARW debug
                     if ((State == STATE_B) || (State == STATE_C)) SetCurrent(Balanced[0]); // set PWM output for Master
                     Broadcast = 2;                                              // reset counter to 2 seconds
                     timeout = 10;                                               // reset timeout counter (not checked for Master)
@@ -1559,7 +1619,7 @@ void main(void) {
             Reads serial packet with Raw Current values, measured from 1-N CT's, over a RS485 serial line
             baudrate is 1200 bps
 
-            packet structure from sensorbox: 	
+            packet structure from sensorbox:
             <protocol>,<version>,<nr of samples>,<sample 1>...<sample n>,<crc16>
             protocol = 0x5001 (2 bytes)
             version = 1 (1 byte)
@@ -1573,12 +1633,12 @@ void main(void) {
             protocol  0x5002		= load balancing commands
             version 	0x01
             adress		0x01		= slave 1 (communication always to/from master)
-                                    = broadcast from master = 0x00 
+                                    = broadcast from master = 0x00
             command		0x02		= request to charge
             data	  0x0020		= @ 32A
             data	  0x0000		= unused data bytes
 
-            commands Slave -> Master: 
+            commands Slave -> Master:
                         0x01		= State A
                         0x02		= request to charge , next two bytes = requested charge current
                         0x03		= charging (State C) next two bytes = requested charge current
@@ -1589,7 +1649,7 @@ void main(void) {
                         0x82		= ack request to charge , next two bytes = calculated charge current
                         0x83		= ACK charging , next two bytes = calculated charge current
                         0x84		= ACK charging done.
-			
+
             broadcast commands:
                         0x01		= Charge current for each Slave EVSE (Smart mode: sent every 2 seconds, Normal mode: sent when needed)
                                       followed by 6 bytes of data (2 bytes per EVSE)
@@ -1605,7 +1665,7 @@ void main(void) {
                 n = 6;
                 Imeasured = 0;                                                  // reset Imeasured value
                 if (U1buffer[5] > 3) U1buffer[5] = 3;                           // protect against buffer overflow
-                for (x = 0; x < U1buffer[5]; x++)                               // Nr of CTs    
+                for (x = 0; x < U1buffer[5]; x++)                               // Nr of CTs
                 {
                     pBytes = (char*) &Irms[x];
                     *pBytes++ = (unsigned char) U1buffer[n++];
@@ -1640,7 +1700,7 @@ void main(void) {
 
             } else if (ISRFLAG > 6 && U1buffer[2] == 0x50 && U1buffer[3] == 0x02 && crc16 == GOODFCS16) // We received a command
             {
-                SlaveAdr = U1buffer[5];                                         //EVSE 0x01 - 0x03 (slaves) 
+                SlaveAdr = U1buffer[5];                                         //EVSE 0x01 - 0x03 (slaves)
                 Command = U1buffer[6];
                 Current = U1buffer[8];
 
@@ -1704,13 +1764,13 @@ void main(void) {
                     }
 
                 }
-                
-                                
+
+
                 if (LoadBl == 1)                                                // We are the Master, commands received from the Slaves are handled here
                 {
                     if (Command == 0x01)                                        // Slave state changed to State A
                     {
-                        BalancedState[SlaveAdr] = 0;                            // Keep track of the state and store it.		
+                        BalancedState[SlaveAdr] = 0;                            // Keep track of the state and store it.
                         CalcBalancedCurrent(0);                                 // Calculate dynamic charge current for connected EVSE's
                         printf("01 Slave %u State A\r\n", SlaveAdr);
                         SendRS485(SlaveAdr, 0x81, 0x00, 0x00);                  // Send ACK to Slave, followed by two dummy bytes

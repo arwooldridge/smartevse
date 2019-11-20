@@ -32,10 +32,10 @@
 #include "GLCD.h"
 
 
-#define VERSION "2.07"                                                          // SmartEVSE software version
+#define VERSION "2.07.VarPV"                                                          // SmartEVSE software version
 #define DEBUG_P                                                                 // Debug print enable/disable
-
-#define ICAL 3.00                                                               // Irms Calibration value (for Current transformers) 
+#define TESLA 1                                                                 //Compile time option to include Tesla specific code
+#define ICAL 3.00                                                               // Irms Calibration value (for Current transformers)
 #define MAX_MAINS 25                                                            // max Current the Mains connection can supply
 #define MAX_CURRENT 13                                                          // max charging Current for the EV
 #define MIN_CURRENT 6                                                           // minimum Current the EV will accept
@@ -108,7 +108,7 @@
 #define DEBUG_PRINT(x) printf x
 #else
 #define DEBUG_PRINT(x)
-#endif 
+#endif
 
 #define _RSTB_0 LATCbits.LATC4 = 0;
 #define _RSTB_1 LATCbits.LATC4 = 1;

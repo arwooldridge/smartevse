@@ -224,7 +224,7 @@ const far unsigned char font[] = {
     0x10, 0x10, 0x10, 0xF0, 0x10,
     0x00, 0x00, 0x00, 0xFF, 0x10,
     0x10, 0x10, 0x10, 0x10, 0x10,
-    0x7D, 0x12, 0x11, 0x12, 0x7D,                                               // 0xC4 Ä
+    0x7D, 0x12, 0x11, 0x12, 0x7D,                                               // 0xC4 ï¿½
     0x00, 0x00, 0x00, 0xFF, 0x14,
     0x00, 0x00, 0xFF, 0x00, 0xFF,
     0x00, 0x00, 0x1F, 0x10, 0x17,
@@ -242,13 +242,13 @@ const far unsigned char font[] = {
     0x00, 0x00, 0x00, 0x1F, 0x14,
     0x00, 0x00, 0x00, 0xFC, 0x14,
     0x00, 0x00, 0xF0, 0x10, 0xF0,
-    0x3D, 0x42, 0x42, 0x42, 0x3D,                                               // 0xD6 Ö
+    0x3D, 0x42, 0x42, 0x42, 0x3D,                                               // 0xD6 ï¿½
     0x14, 0x14, 0x14, 0xFF, 0x14,
     0x10, 0x10, 0x10, 0x1F, 0x00,
     0x00, 0x00, 0x00, 0xF0, 0x10,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xF0, 0xF0, 0xF0, 0xF0, 0xF0,
-    0x22, 0x54, 0x54, 0x78, 0x42,                                               // 0xDC Ü (tbd)
+    0x22, 0x54, 0x54, 0x78, 0x42,                                               // 0xDC ï¿½ (tbd)
     0x00, 0x00, 0x00, 0xFF, 0xFF,
     0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
     0x38, 0x44, 0x44, 0x38, 0x44,
@@ -256,7 +256,7 @@ const far unsigned char font[] = {
     0x7E, 0x02, 0x02, 0x06, 0x06,
     0x02, 0x7E, 0x02, 0x7E, 0x02,
     0x63, 0x55, 0x49, 0x41, 0x63,
-    0x22, 0x54, 0x54, 0x78, 0x42,                                               // 0xE4 ä
+    0x22, 0x54, 0x54, 0x78, 0x42,                                               // 0xE4 ï¿½
     0x40, 0x7E, 0x20, 0x1E, 0x20,
     0x06, 0x02, 0x7E, 0x02, 0x02,
     0x99, 0xA5, 0xE7, 0xA5, 0x99,
@@ -274,13 +274,13 @@ const far unsigned char font[] = {
     0x00, 0x00, 0xFF, 0x01, 0x03,
     0xE0, 0x80, 0xFF, 0x00, 0x00,
     0x08, 0x08, 0x6B, 0x6B, 0x08,
-    0x3A, 0x44, 0x44, 0x44, 0x3A,                                               // 0xF6 ö 
+    0x3A, 0x44, 0x44, 0x44, 0x3A,                                               // 0xF6 ï¿½
     0x06, 0x0F, 0x09, 0x0F, 0x06,
     0x00, 0x00, 0x18, 0x18, 0x00,
     0x00, 0x00, 0x10, 0x10, 0x00,
     0x30, 0x40, 0xFF, 0x01, 0x01,
     0x00, 0x1F, 0x01, 0x01, 0x1E,
-    0x00, 0x19, 0x1D, 0x17, 0x12,                                               // 0xFC ü (tbd)
+    0x00, 0x19, 0x1D, 0x17, 0x12,                                               // 0xFC ï¿½ (tbd)
     0x00, 0x3C, 0x3C, 0x3C, 0x3C,
     0x00, 0x00, 0x00, 0x00, 0x00
 };
@@ -377,7 +377,7 @@ void GLCD_print_Amps(unsigned int Amps)                                         
 }
 
 // uses buffer
-void GLCDHelp(void)                                                             // Display/Scroll helptext on LCD 
+void GLCDHelp(void)                                                             // Display/Scroll helptext on LCD
 {
     unsigned int x;
 
@@ -449,7 +449,7 @@ void GLCD(void) {
         if (LCDTimer++ == 120) {
             LCDNav = 0;                                                         // Exit Setup menu after 120 seconds.
             read_settings();                                                    // don't save, but restore settings
-        } else return;                                                          // disable LCD status messages when navigating LCD Menu	
+        } else return;                                                          // disable LCD status messages when navigating LCD Menu
     }
 
     if (LCDTimer == 10) LCDTimer = 0;
@@ -566,7 +566,7 @@ void GLCD(void) {
 // 40 MAX   			- Set MAX Charge Current for the EV (16-80)
 // 50		MIN   		- Set MIN Charge Current the EV will accept (Mode=Smart)
 // 60 LOCK				- Cable lock Enable/disable
-// 70 CABLE				- Set Fixed Cable Current limit 
+// 70 CABLE				- Set Fixed Cable Current limit
 // 80 CAL 		  		- Calibrate CT1
 // 90 EXIT				- Exit Menu
 //100 LOADBL            - Load Balancing
@@ -580,7 +580,7 @@ void GLCDMenu(unsigned char Buttons) {
 
     // Main Menu Navigation
     BacklightTimer = BACKLIGHT;                                                 // delay before LCD backlight turns off.
-    BACKLIGHT_ON;                                                               // LCD backlight on	
+    BACKLIGHT_ON;                                                               // LCD backlight on
 
     if (RCmon == 1 && Error == RCD_TRIPPED && PORTBbits.RB1 == 0)               // RCD was tripped, but RCD level is back to normal
     {
@@ -601,12 +601,12 @@ void GLCDMenu(unsigned char Buttons) {
         ButtonRelease = 0;
         GLCD();
     } else if ((LCDNav == MENU_CAL) && (Buttons == 0x2) &&  SubMenu )           // Buttons 1> and 3< pressed ?
-    {                                                                           
-        ICal = ICAL;                                                            // reset Calibration value (new 2.05)    
+    {
+        ICal = ICAL;                                                            // reset Calibration value (new 2.05)
         SubMenu = 0;                                                            // Exit Submenu
         ButtonRelease = 1;
     }
-    else if ((LCDNav > 0) && ((LCDNav % 10) == 0) && (Buttons == 0x3) && (ButtonRelease == 0)) // Button 1 > pressed 
+    else if ((LCDNav > 0) && ((LCDNav % 10) == 0) && (Buttons == 0x3) && (ButtonRelease == 0)) // Button 1 > pressed
     {
         switch (LCDNav) {
             case MENU_CONFIG:
@@ -644,9 +644,10 @@ void GLCDMenu(unsigned char Buttons) {
                     MaxCurrent++;                                               // Set new MaxCurrent
                     if (MaxCurrent > 80) MaxCurrent = 80;                       // Max 80A
                 } else {
-                    if (Mode || (LoadBl == 1)) LCDNav = MENU_MIN;               // Smart Mode or Master?
-                    else if (Config) LCDNav = MENU_CABLE;                       // Cable Configuration, go to Cable Current
-                    else LCDNav = MENU_LOCK;                                    // Fixed Cable, use the lock
+                  LCDNav = MENU_MIN;                                          //ARW need menu_min always to test for Tesla=5A
+                  //  if (Mode || (LoadBl == 1)) LCDNav = MENU_MIN;               // Smart Mode or Master?
+                  //  else if (Config) LCDNav = MENU_CABLE;                       // Cable Configuration, go to Cable Current
+                  //  else LCDNav = MENU_LOCK;                                    // Fixed Cable, use the lock
                 }
                 break;
             case MENU_MIN:
@@ -663,7 +664,7 @@ void GLCDMenu(unsigned char Buttons) {
                     if (Lock == 2) Lock = 0;
                     else Lock++;
                     break;
-                }
+                }            //ARW menu_lock is dead end branch for RH button press, should it go to MENU_ACCESS??
             case MENU_CABLE:
                 if (SubMenu) {
                     CableLimit++;                                               // Set new CableLimit
@@ -704,7 +705,7 @@ void GLCDMenu(unsigned char Buttons) {
                 break;
         }
         ButtonRelease = 1;
-    } else if ((LCDNav > 0) && ((LCDNav % 10) == 0) && (Buttons == 0x6) && (ButtonRelease == 0)) // Button 3 < pressed 
+    } else if ((LCDNav > 0) && ((LCDNav % 10) == 0) && (Buttons == 0x6) && (ButtonRelease == 0)) // Button 3 < pressed
     {
         switch (LCDNav) {
             case MENU_EXIT:
@@ -744,14 +745,16 @@ void GLCDMenu(unsigned char Buttons) {
                     else Lock--;
                 }
                 else {
-                    if (Mode || (LoadBl == 1)) LCDNav = MENU_MIN;               // Smart Mode or Master?
-                    else LCDNav = MENU_MAX;
+                  LCDNav = MENU_MIN;                                          //ARW need Menu_min always to test for tesla 5A
+                //    if (Mode || (LoadBl == 1)) LCDNav = MENU_MIN;               // Smart Mode or Master?
+                //    else LCDNav = MENU_MAX;
                 }
                 break;
             case MENU_MIN:
                 if (SubMenu) {
                     MinCurrent--;                                               // Set new MinCurrent
-                    if (MinCurrent < 6) MinCurrent = 6;                         // Min 6A
+                    if (MinCurrent < 5) MinCurrent = 5;                         //ARW allow Min 5A for Tesla
+                    //ARW we will test for Tesla mode charging if MinCurrent is set to 5 or not
                 } else LCDNav = MENU_MAX;
                 break;
             case MENU_MAX:
@@ -938,7 +941,7 @@ void st7565_data(unsigned char data) {
 
 void goto_row(unsigned char y) {
     unsigned char pattern;
-    pattern = 0xB0 | (y & 0xBF);                                                //put row address on data port set command     
+    pattern = 0xB0 | (y & 0xBF);                                                //put row address on data port set command
     st7565_command(pattern);
 }
 //--------------------
@@ -961,7 +964,7 @@ void glcd_clrln(unsigned char ln, unsigned char data) {
     unsigned char i;
     goto_xy(0, ln);
     for (i = 0; i < 132; i++) {
-        st7565_data(data);                                                      //put data on data port  
+        st7565_data(data);                                                      //put data on data port
     }
 }
 
@@ -969,10 +972,10 @@ void GLCD_sendbuf(unsigned char RowAdr) {
     unsigned char i, x = 0;
 
     goto_xy(0, RowAdr);
-    for (i = 0; i < 128; i++) st7565_data(GLCDbuf[x++]);                        //put data on data port  
+    for (i = 0; i < 128; i++) st7565_data(GLCDbuf[x++]);                        //put data on data port
 
     goto_xy(0, RowAdr + 1);
-    for (i = 0; i < 128; i++) st7565_data(GLCDbuf[x++]);                        //put data on data port  
+    for (i = 0; i < 128; i++) st7565_data(GLCDbuf[x++]);                        //put data on data port
 }
 
 void glcd_clear(void) {
@@ -1037,8 +1040,8 @@ void GLCD_write_buf2(unsigned int c) {
         if (ch&0x02) z1=z1|0xc;
         if (ch&0x04) z1=z1|0x30;
         if (ch&0x08) z1=z1|0xc0;
-        st7565_data(z1);    
-        st7565_data(z1);    
+        st7565_data(z1);
+        st7565_data(z1);
     }
     goto_xy(GLCDx,GLCDy+1);
     for(i=0;i<5;i++)
@@ -1049,8 +1052,8 @@ void GLCD_write_buf2(unsigned int c) {
         if (ch&0x02) z1=z1|0xc;
         if (ch&0x04) z1=z1|0x30;
         if (ch&0x08) z1=z1|0xc0;
-        st7565_data(z1);    
-        st7565_data(z1);    
+        st7565_data(z1);
+        st7565_data(z1);
     }
     GLCDx=GLCDx+12;
 }
@@ -1066,7 +1069,7 @@ void GLCD_write_buf2(unsigned int c) {
 //		if (ch&0x01) z1=z1|0x7;
 //		if (ch&0x02) z1=z1|0x38;
 //		if (ch&0x04) z1=z1|0xc0;
-//		st7565_data(z1);    
+//		st7565_data(z1);
 //		st7565_data(z1);
 //		if (i!=2) st7565_data(z1);
 //	}
@@ -1079,7 +1082,7 @@ void GLCD_write_buf2(unsigned int c) {
 //		if (ch&0x08) z1=z1|0x0e;
 //		if (ch&0x10) z1=z1|0x70;
 //		if (ch&0x20) z1=z1|0x80;
-//		st7565_data(z1);    
+//		st7565_data(z1);
 //		st7565_data(z1);
 //		if (i!=2) st7565_data(z1);
 //	}
@@ -1091,7 +1094,7 @@ void GLCD_write_buf2(unsigned int c) {
 //		if (ch&0x20) z1=z1|0x03;
 //		if (ch&0x40) z1=z1|0x1c;
 //		if (ch&0x80) z1=z1|0xe0;
-//		st7565_data(z1);    
+//		st7565_data(z1);
 //		st7565_data(z1);
 //		if (i!=2) st7565_data(z1);
 //	}
@@ -1154,7 +1157,7 @@ void GLCD_init(void) {
 
     goto_row(0x00);                                                             // Set page address
     goto_col(0x00);                                                             // Set column addr LSB
-    st7565_command(0xAF);                                                       // ON command  
+    st7565_command(0xAF);                                                       // ON command
 
 }
 
@@ -1165,4 +1168,3 @@ void GLCD_version(void) {
 
     delay(2000);                                                                // show version for 2 seconds
 }
-
